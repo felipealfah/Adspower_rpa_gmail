@@ -22,6 +22,16 @@ class SMSAPI:
         self.api_key = api_key or get_credential("SMS_ACTIVATE_API_KEY")
         self.base_url = "https://api.sms-activate.org/stubs/handler_api.php"
 
+        # Lista de países selecionados com seus códigos
+        self.selected_countries = {
+            "73": "Brasil",
+            "151": "Chile",
+            "12": "Estados Unidos",
+            "40": "Canadá",
+            "16": "Reino Unido",
+            "117": "Portugal"
+        }
+
     def refresh_credentials(self):
         """Atualiza a chave da API carregando as credenciais mais recentes."""
         self.api_key = get_credential("SMS_ACTIVATE_API_KEY")
@@ -51,25 +61,19 @@ class SMSAPI:
             logger.error(f"Erro ao se conectar à API SMS: {str(e)}")
             return None
 
-    def get_prices(self, service=None, countries=None):
+    def get_prices(self, service=None):
         """
         Obtém preços dos números de telefone por país e serviço.
 
         Args:
-            service (str, optional): Código do serviço (ex: "go" para Gmail).
-            countries (list, optional): Lista de códigos de países para filtrar.
+            service (str, optional): Código do serviço (ex: "go" para Gmail, "tk" para TikTok).
+                                    Se None, retorna todos os serviços.
 
         Returns:
             dict: Dicionário estruturado com preços e quantidades disponíveis.
         """
         # Sempre atualizar a chave
         self.refresh_credentials()
-
-        # Validar o parâmetro countries
-        if countries is not None and not isinstance(countries, (list, tuple, set)):
-            logger.warning(
-                f"⚠️ Parâmetro 'countries' inválido: {type(countries)}. Deve ser lista ou tupla.")
-            countries = []
 
         params = {'api_key': self.api_key, 'action': 'getPrices'}
 
@@ -78,38 +82,29 @@ class SMSAPI:
 
             if response.status_code != 200:
                 logger.error(f"Erro ao obter preços: {response.text}")
-                return {}
+                return None
 
             data = response.json()
             prices = {}
 
-            # Processar todos os países da resposta
             for country, services in data.items():
-                # Filtrar apenas os países especificados (se fornecido)
-                if countries and country not in countries:
-                    continue
-
-                for srv, details in services.items():
-                    if service is None or srv == service:  # Filtra pelo serviço se especificado
-                        prices.setdefault(country, {})[srv] = {
-                            "cost": float(details["cost"]),
-                            "count": int(details["count"])
-                        }
+                if country in self.selected_countries:
+                    for srv, details in services.items():
+                        if service is None or srv == service:  # Filtra pelo serviço se especificado
+                            prices.setdefault(country, {})[srv] = {
+                                "cost": float(details["cost"]),
+                                "count": int(details["count"])
+                            }
 
             return prices
         except Exception as e:
             logger.error(f"Erro ao obter preços: {str(e)}")
-            return {}  # Retornar dicionário vazio em vez de None
+            return None
 
     def get_number_status(self, country, service):
         """Verifica disponibilidade de números para um serviço em um país específico."""
         # Atualizar credenciais
         self.refresh_credentials()
-
-        if not country or not service:
-            logger.warning(
-                "⚠️ País ou serviço não fornecido para verificação de status")
-            return 0
 
         params = {
             'api_key': self.api_key,
@@ -121,21 +116,88 @@ class SMSAPI:
             response = requests.get(BASE_URL, params=params, timeout=10)
             if response.status_code == 200:
                 data = response.json()
-                # Validar o formato do retorno
-                if not isinstance(data, dict):
-                    logger.warning(f"⚠️ Resposta de API inesperada: {data}")
-                    return 0
-
-                # Retorna a quantidade disponível para o serviço específico
-                service_count = data.get(service, 0)
-                return int(service_count) if service_count is not None else 0
+                # Retorna a quantidade disponível
+                return int(data.get(service, 0))
             else:
                 logger.error(
                     f"Erro ao verificar disponibilidade: {response.text}")
                 return 0
         except Exception as e:
-            logger.error(f"❌ Erro ao verificar status dos números: {str(e)}")
+            logger.error(f"Erro ao verificar status dos números: {str(e)}")
             return 0
+
+    def get_cheapest_country(self, service):
+        """Encontra o país mais barato para um serviço dentro dos países selecionados."""
+        prices = self.get_prices()
+        if not prices:
+            return None, None
+
+        cheapest_country = None
+        lowest_price = float('inf')
+
+        for country_code in self.selected_countries.keys():
+            if country_code in prices and service in prices[country_code]:
+                price = float(prices[country_code][service]['cost'])
+                available = int(prices[country_code][service]['count'])
+                if price < lowest_price and available > 0:
+                    lowest_price = price
+                    cheapest_country = country_code
+
+        if cheapest_country:
+            logger.info(
+                f"🌍 País mais barato para {service}: {self.selected_countries[cheapest_country]} - {lowest_price} RUB")
+            return cheapest_country, lowest_price
+        else:
+            logger.warning(f"Nenhum país disponível para {service}")
+            return None, None
+
+    def buy_number(self, service, country):
+        """Compra um número de telefone com validação melhorada."""
+        self.refresh_credentials()
+
+        params = {
+            'api_key': self.api_key,
+            'action': 'getNumber',
+            'service': service,
+            'country': country
+        }
+
+        try:
+            response = requests.get(self.base_url, params=params, timeout=15)
+            response_text = response.text
+
+            if "ACCESS_NUMBER" in response_text:
+                _, activation_id, phone_number = response_text.split(":")
+                logger.info(
+                    f"✅ Número comprado com sucesso: {phone_number} (ID: {activation_id})")
+
+                # Validar dados antes de retornar
+                if not all([activation_id, phone_number]):
+                    raise ValueError(
+                        "Dados do número incompletos na resposta da API")
+
+                return activation_id.strip(), phone_number.strip()
+
+            # Tratamento de erros específicos
+            error_messages = {
+                "NO_NUMBERS": "Sem números disponíveis",
+                "NO_BALANCE": "Saldo insuficiente",
+                "BAD_SERVICE": "Serviço inválido",
+                "BAD_KEY": "Chave de API inválida"
+            }
+
+            for error_code, message in error_messages.items():
+                if error_code in response_text:
+                    logger.error(
+                        f"❌ {message} para {service} no país {country}")
+                    return None, None
+
+            logger.error(f"❌ Erro desconhecido: {response_text}")
+            return None, None
+
+        except Exception as e:
+            logger.error(f"❌ Erro ao comprar número: {str(e)}")
+            return None, None
 
     def get_sms_code(self, activation_id, max_attempts=10, interval=10):
         """Verifica se o SMS foi recebido e retorna o código."""
@@ -245,9 +307,71 @@ class SMSAPI:
             logger.error(f"Erro ao reutilizar número: {str(e)}")
             return False
 
+    def compare_prices_in_selected_countries(self, service):
+        """
+        Compara os preços e disponibilidade de um serviço entre os países selecionados.
+
+        Args:
+            service (str): Código do serviço para verificar (ex: "go" para Gmail).
+
+        Returns:
+            list: Lista ordenada de dicionários com informações de cada país.
+        """
+        try:
+            all_prices = self.get_prices()  # Obtém todos os preços disponíveis
+
+            if not all_prices:
+                logger.error(
+                    f"❌ Erro: Não foi possível obter os preços para o serviço {service}.")
+                return []
+
+            logger.info(f"📊 🔍 Dados brutos retornados pela API para {service}")
+            service_prices = []
+
+            # Filtrar apenas os países selecionados
+            for country_code, country_name in self.selected_countries.items():
+                if country_code in all_prices and service in all_prices[country_code]:
+                    try:
+                        # 💰 Obtém o preço
+                        price_rub = float(
+                            all_prices[country_code][service]["cost"])
+                        # 🔢 Obtém a quantidade disponível
+                        available_count = int(
+                            all_prices[country_code][service]["count"])
+
+                        service_prices.append({
+                            'country_code': country_code,
+                            'country_name': country_name,
+                            'price': price_rub,
+                            'available': available_count
+                        })
+
+                        logger.info(
+                            f"✅ {country_name}: {price_rub} RUB ({available_count} disponíveis)")
+
+                    except (ValueError, KeyError) as e:
+                        logger.warning(
+                            f"⚠️ Erro ao processar preços para {service} no país {country_name}: {str(e)}")
+                        continue
+
+            # Ordenar os países por preço (do mais barato para o mais caro)
+            sorted_prices = sorted(service_prices, key=lambda x: x['price'])
+
+            if not sorted_prices:
+                logger.warning(
+                    f"⚠️ Nenhum número disponível para {service} nos países selecionados.")
+
+            return sorted_prices
+
+        except Exception as e:
+            logger.error(
+                f"❌ Erro ao comparar preços nos países selecionados para {service}: {str(e)}")
+            return []
+
+    # Alias para manter compatibilidade com código existente
     def get_number(self, service, country):
         """
-        Obtém um número de telefone de um país específico.
+        Alias para o método buy_number para compatibilidade com código existente.
 
         Args:
             service (str): Código do serviço (ex: "go" para Gmail)
@@ -256,76 +380,4 @@ class SMSAPI:
         Returns:
             tuple: (activation_id, phone_number) ou (None, None) em caso de falha
         """
-        # Atualizar credenciais
-        self.refresh_credentials()
-
-        params = {
-            'api_key': self.api_key,
-            'action': 'getNumber',
-            'service': service,
-            'country': country
-        }
-
-        try:
-            response = requests.get(self.base_url, params=params, timeout=15)
-            response_text = response.text
-
-            if "ACCESS_NUMBER" in response_text:
-                _, activation_id, phone_number = response_text.split(":")
-                return activation_id.strip(), phone_number.strip()
-            else:
-                # Tratar erros específicos
-                error_messages = {
-                    "NO_NUMBERS": "Sem números disponíveis",
-                    "NO_BALANCE": "Saldo insuficiente",
-                    "BAD_SERVICE": "Serviço inválido",
-                    "BAD_KEY": "Chave de API inválida"
-                }
-
-                for error_code, message in error_messages.items():
-                    if error_code in response_text:
-                        logger.error(
-                            f"❌ {message} para {service} no país {country}")
-                        return None, None
-
-                logger.error(f"❌ Erro desconhecido: {response_text}")
-                return None, None
-
-        except Exception as e:
-            logger.error(f"❌ Erro ao obter número: {str(e)}")
-            return None, None
-
-    def cancel_number(self, activation_id):
-        """
-        Cancela um número na API SMS-Activate.
-
-        Args:
-            activation_id (str): O ID do número a ser cancelado.
-
-        Returns:
-            bool: True se o cancelamento foi bem-sucedido, False caso contrário.
-        """
-        # Atualizar credenciais
-        self.refresh_credentials()
-
-        params = {
-            "api_key": self.api_key,  # Usar a chave de API carregada
-            "action": "cancel",
-            "id": activation_id
-        }
-
-        try:
-            response = requests.get(BASE_URL, params=params, timeout=10)
-            response_data = response.text
-
-            if "ACCESS_CANCEL" in response_data:
-                logger.info(f"Número {activation_id} cancelado com sucesso.")
-                return True
-            else:
-                logger.error(
-                    f"Erro ao cancelar número {activation_id}: {response_data}")
-                return False
-        except Exception as e:
-            logger.error(
-                f"Erro ao fazer requisição para cancelar número: {str(e)}")
-            return False  # Retorna a resposta da API para o PhoneManager processar
+        return self.buy_number(service, country)

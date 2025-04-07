@@ -74,8 +74,11 @@ class PhoneVerification:
 
             if not self._check_phone_screen():
                 logger.info(
-                    "📌 Tela de verificação de telefone não encontrada.")
-                return True
+                    "📌 Tela de verificação de telefone não encontrada. Tentando garantir tela de verificação...")
+                if not self._ensure_phone_verification_screen(max_attempts=3):
+                    logger.error(
+                        "❌ Não foi possível acessar a tela de verificação de telefone.")
+                    return False
 
             if not self._validate_initial_conditions():
                 return False
@@ -217,6 +220,33 @@ class PhoneVerification:
                                 return True
                     except:
                         continue
+
+                # Se ainda não conseguimos chegar à tela de verificação, tentar reiniciar o processo
+                if attempt == max_attempts - 1:  # Na última tentativa
+                    logger.warning(
+                        "🔄 Tentando reiniciar o processo de criação de conta...")
+                    try:
+                        # Voltar para a URL inicial de cadastro
+                        self.driver.get("https://accounts.google.com/signup")
+                        time.sleep(5)
+
+                        # Verificar elementos iniciais do formulário de cadastro
+                        form_selectors = [
+                            "//input[@name='firstName']",
+                            "//input[@name='lastName']",
+                            "//input[@name='Username']"
+                        ]
+
+                        for selector in form_selectors:
+                            if self._element_exists(selector, timeout=2):
+                                logger.info(
+                                    "✅ Voltamos para o início do cadastro. Será necessário reiniciar o processo.")
+                                # Retornar False para indicar que precisamos reiniciar o processo completo
+                                return False
+
+                    except Exception as e:
+                        logger.error(
+                            f"❌ Erro ao tentar reiniciar o processo: {str(e)}")
 
             except Exception as e:
                 logger.warning(
