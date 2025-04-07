@@ -32,7 +32,12 @@ class PhoneManager:
 
         # Definição dos países e suas prioridades
         self.selected_countries = {
-            "73": "Brasil",     # Brasil como primeira opção
+            # Brasil como primeira opção (prioridade absoluta)
+            "73": "Brasil",
+            "36": "Canadá",     # Canadá
+            "187": "Estados Unidos",  # Estados Unidos
+            "52": "México",     # México
+            "16": "Reino Unido",  # Reino Unido
             "151": "Chile",     # Chile
             "224": "Paraguai",  # Paraguai
             "156": "Peru",      # Peru
@@ -40,7 +45,8 @@ class PhoneManager:
         }
 
         # Ordem de prioridade para busca de países
-        self.country_priority = ["73", "151", "224", "156", "225"]
+        self.country_priority = ["73", "187", "36",
+                                 "52", "16", "151", "224", "156", "225"]
 
     def _load_numbers(self):
         """Carrega os números do arquivo de armazenamento."""
@@ -184,6 +190,10 @@ class PhoneManager:
         """Retorna o nome do país baseado no código."""
         country_names = {
             "73": "Brasil",
+            "36": "Canadá",
+            "187": "Estados Unidos",
+            "52": "México",
+            "16": "Reino Unido",
             "151": "Chile",
             "224": "Paraguai",
             "156": "Peru",
@@ -478,10 +488,14 @@ class PhoneManager:
         Encontra o país mais adequado para um serviço, priorizando Brasil primeiro.
         Ordem de prioridade:
         1. Brasil (73)
-        2. Chile (151)
-        3. Paraguai (224)
-        4. Peru (156)
-        5. Uruguai (225)
+        2. Canadá (36)
+        3. Estados Unidos (187)
+        4. México (52)
+        5. Reino Unido (16)
+        6. Chile (151)
+        7. Paraguai (224)
+        8. Peru (156)
+        9. Uruguai (225)
         """
         # Brasil SEMPRE deve ser a prioridade absoluta para Gmail
         brazil_code = "73"
