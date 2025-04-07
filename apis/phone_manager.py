@@ -534,3 +534,175 @@ class PhoneManager:
         
         logger.error("❌ Não foi possível comprar número com webhook para os serviços especificados em nenhum país")
         return None
+    
+    def buy_multi_service_number_br(self, services, operator=None, max_price=None):
+        """
+        Compra um número brasileiro específico para múltiplos serviços.
+        Prioriza a qualidade e disponibilidade, mesmo que seja mais caro.
+        
+        Args:
+            services (list): Lista de códigos de serviço (ex: ["go", "tk", "ig"])
+            operator (str, optional): Operadora específica (claro, vivo, tim, oi)
+            max_price (float, optional): Preço máximo aceitável em rublos
+            
+        Returns:
+            dict: Informações do número comprado ou None se falhou
+        """
+        if not self.sms_api:
+            logger.error("❌ API SMS não inicializada")
+            return None
+        
+        # Código do Brasil
+        country_code = "73"
+        country_name = self.selected_countries.get(country_code, "Brasil")
+        
+        # Lista de operadoras brasileiras para tentar, se nenhuma operadora for especificada
+        br_operators = ["claro", "vivo", "tim", "oi"]
+        
+        # Se uma operadora específica foi solicitada, tente apenas essa
+        operators_to_try = [operator] if operator else br_operators
+        
+        # Verificar disponibilidade e preços para operadoras brasileiras
+        logger.info(f"🔍 Verificando disponibilidade de números para serviços {services} no Brasil")
+        
+        for op in operators_to_try:
+            try:
+                logger.info(f"📱 Tentando operadora: {op.upper()}")
+                
+                # Tentar comprar o número com esta operadora
+                activation_id, phone_number = self.sms_api.buy_number_multi_service(
+                    services, 
+                    country_code,
+                    operator=op,
+                    max_price=max_price
+                )
+                
+                if activation_id and phone_number:
+                    logger.info(f"✅ Número multi-serviço obtido: {phone_number} (Operadora: {op.upper()})")
+                    
+                    # Salvar o número no gerenciador
+                    number_data = {
+                        "phone_number": phone_number,
+                        "country_code": country_code,
+                        "activation_id": activation_id,
+                        "operator": op,
+                        "services": services,
+                        "first_used": time.time(),
+                        "last_used": time.time(),
+                        "times_used": 1
+                    }
+                    
+                    # Adicionar ao armazenamento interno
+                    self.numbers.append(number_data)
+                    self._save_numbers()
+                    
+                    return number_data
+                    
+            except Exception as e:
+                logger.error(f"❌ Erro ao comprar número com operadora {op}: {str(e)}")
+                continue
+        
+        # Se não conseguiu com nenhuma operadora específica, tentar sem especificar operadora
+        if operator is not None:  # Se já tentamos sem operadora, não tente novamente
+            logger.info("📱 Tentando sem especificar operadora...")
+            try:
+                activation_id, phone_number = self.sms_api.buy_number_multi_service(
+                    services, 
+                    country_code,
+                    max_price=max_price
+                )
+                
+                if activation_id and phone_number:
+                    logger.info(f"✅ Número multi-serviço obtido: {phone_number} (Operadora: não especificada)")
+                    
+                    # Salvar o número no gerenciador
+                    number_data = {
+                        "phone_number": phone_number,
+                        "country_code": country_code,
+                        "activation_id": activation_id,
+                        "services": services,
+                        "first_used": time.time(),
+                        "last_used": time.time(),
+                        "times_used": 1
+                    }
+                    
+                    # Adicionar ao armazenamento interno
+                    self.numbers.append(number_data)
+                    self._save_numbers()
+                    
+                    return number_data
+            except Exception as e:
+                logger.error(f"❌ Erro ao comprar número sem operadora específica: {str(e)}")
+        
+        logger.error("❌ Não foi possível comprar número brasileiro para os serviços especificados")
+        return None
+
+    def check_multi_service_availability_br(self, services):
+        """
+        Verifica a disponibilidade de números brasileiros para múltiplos serviços
+        e retorna informações sobre preços e operadoras.
+        
+        Args:
+            services (list): Lista de códigos de serviço (ex: ["go", "tk", "ig"])
+            
+        Returns:
+            dict: Informações sobre disponibilidade, preços e operadoras
+        """
+        # Código do Brasil
+        country_code = "73"
+        country_name = "Brasil"
+        
+        # Lista de operadoras brasileiras
+        br_operators = ["claro", "vivo", "tim", "oi"]
+        
+        result = {
+            "services": services,
+            "country": country_name,
+            "country_code": country_code,
+            "operators": {},
+            "total_available": 0,
+            "recommended_operator": None,
+            "min_price": float("inf"),
+            "max_price": 0
+        }
+        
+        # Obter preços gerais para o serviço
+        prices_data = self.sms_api.get_prices()
+        services_str = ",".join(services)
+        
+        # Verificar disponibilidade para cada operadora
+        for op in br_operators:
+            try:
+                # Este é um placeholder - a API atual não suporta verificação por operadora
+                # Idealmente, chamaríamos algo como self.sms_api.get_number_status_by_operator
+                # Como alternativa, podemos tentar comprar um número e cancelar imediatamente
+                
+                # Por enquanto, apenas simulamos a verificação
+                is_available = True  # Placeholder
+                price = 0  # Placeholder
+                
+                if is_available:
+                    result["operators"][op] = {
+                        "available": True,
+                        "price": price
+                    }
+                    result["total_available"] += 1
+                    
+                    # Atualizar min/max preço
+                    if price < result["min_price"]:
+                        result["min_price"] = price
+                    if price > result["max_price"]:
+                        result["max_price"] = price
+                        
+                    # Se ainda não temos operadora recomendada, use esta
+                    if not result["recommended_operator"]:
+                        result["recommended_operator"] = op
+                    
+            except Exception as e:
+                logger.error(f"❌ Erro ao verificar disponibilidade para operadora {op}: {str(e)}")
+                result["operators"][op] = {
+                    "available": False,
+                    "error": str(e)
+                }
+        
+        return result
