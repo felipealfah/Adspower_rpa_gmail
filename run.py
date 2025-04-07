@@ -1,10 +1,23 @@
-# run_services.py
+# run.py
 import subprocess
 import os
 import sys
 import time
 import signal
 import platform
+import threading
+import logging
+
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Saída para o console
+        logging.FileHandler("sms_gateway.log")  # Arquivo de log
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Armazenar os processos para encerramento adequado
 processes = []
@@ -16,60 +29,10 @@ def clear_screen():
     else:
         os.system("clear")
 
-def get_python_executable():
-    """Retorna o executável Python adequado."""
-    return sys.executable
-
-def start_webhook():
-    """Inicia o servidor webhook."""
-    python_exe = get_python_executable()
-    webhook_script = os.path.join("webhooks", "webhook.py")
-    
-    print("📲 Iniciando servidor webhook...")
-    
-    # Diferente tratamento para Windows vs Unix
-    if platform.system() == "Windows":
-        # No Windows, usamos subprocess.CREATE_NEW_CONSOLE para ter uma janela separada
-        process = subprocess.Popen(
-            [python_exe, webhook_script],
-            creationflags=subprocess.CREATE_NEW_CONSOLE
-        )
-    else:
-        # Em sistemas Unix, redirecionamos a saída para um arquivo de log
-        log_file = open("webhook.log", "w")
-        process = subprocess.Popen(
-            [python_exe, webhook_script],
-            stdout=log_file,
-            stderr=subprocess.STDOUT
-        )
-    
-    processes.append(("webhook", process))
-    return process
-
-def start_streamlit():
-    """Inicia a aplicação Streamlit."""
-    streamlit_app = os.path.join("ui", "app.py")
-    
-    print("🖥️ Iniciando aplicação Streamlit...")
-    
-    # Diferente tratamento para Windows vs Unix
-    if platform.system() == "Windows":
-        # No Windows, usamos subprocess.CREATE_NEW_CONSOLE para ter uma janela separada
-        process = subprocess.Popen(
-            ["streamlit", "run", streamlit_app],
-            creationflags=subprocess.CREATE_NEW_CONSOLE
-        )
-    else:
-        # Em sistemas Unix, redirecionamos a saída para um arquivo de log
-        log_file = open("streamlit.log", "w")
-        process = subprocess.Popen(
-            ["streamlit", "run", streamlit_app],
-            stdout=log_file,
-            stderr=subprocess.STDOUT
-        )
-    
-    processes.append(("streamlit", process))
-    return process
+def stream_output(process, prefix):
+    """Lê a saída de um processo e a exibe no console com um prefixo."""
+    for line in iter(process.stdout.readline, b''):
+        print(f"{prefix}: {line.decode('utf-8').strip()}")
 
 def shutdown_handler(signum=None, frame=None):
     """Manipulador para encerrar todos os processos."""
@@ -95,6 +58,8 @@ def shutdown_handler(signum=None, frame=None):
 
 def main():
     """Função principal para executar os serviços."""
+    global processes
+    
     clear_screen()
     print("=" * 60)
     print("🚀 INICIANDO SERVIÇOS SMS GATEWAY & UI 🚀")
@@ -109,33 +74,62 @@ def main():
         pass  # Ignorar erros em sistemas que não suportam sinais
     
     # Iniciar o servidor webhook
-    webhook_process = start_webhook()
+    print("📲 Iniciando servidor webhook...")
+    webhook_cmd = [sys.executable, "webhooks/webhook.py"]
     
-    # Aguardar um pouco para o webhook inicializar
+    webhook_process = subprocess.Popen(
+        webhook_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        universal_newlines=False,
+        bufsize=1
+    )
+    processes.append(("webhook", webhook_process))
+    
+    # Criar thread para mostrar a saída do webhook
+    webhook_thread = threading.Thread(
+        target=stream_output,
+        args=(webhook_process, "WEBHOOK"),
+        daemon=True
+    )
+    webhook_thread.start()
+    
+    # Aguardar um pouco para o webhook iniciar
     print("⏳ Aguardando inicialização do webhook...")
     time.sleep(3)
     
-    # Iniciar a aplicação Streamlit
-    streamlit_process = start_streamlit()
+    # Iniciar o Streamlit
+    print("🖥️ Iniciando aplicação Streamlit...")
+    streamlit_app = os.path.join("ui", "app.py")
+    streamlit_cmd = ["streamlit", "run", streamlit_app]
+    
+    streamlit_process = subprocess.Popen(
+        streamlit_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        universal_newlines=False,
+        bufsize=1
+    )
+    processes.append(("streamlit", streamlit_process))
+    
+    # Criar thread para mostrar a saída do Streamlit
+    streamlit_thread = threading.Thread(
+        target=stream_output,
+        args=(streamlit_process, "STREAMLIT"),
+        daemon=True
+    )
+    streamlit_thread.start()
     
     print("\n✅ Todos os serviços foram iniciados!")
     print("-" * 60)
-    
-    if platform.system() == "Windows":
-        print("📋 Instruções para Windows:")
-        print("  - Cada serviço está em execução em uma janela separada")
-        print("  - Feche as janelas dos serviços quando quiser encerrá-los")
-        print("  - Ou pressione Ctrl+C nesta janela para encerrar todos")
-    else:
-        print("📋 Instruções:")
-        print("  - Os logs dos serviços estão em webhook.log e streamlit.log")
-        print("  - Pressione Ctrl+C para encerrar todos os serviços")
-    
+    print("📋 Instruções:")
+    print("  - Os logs dos serviços são mostrados acima com prefixos")
+    print("  - Pressione Ctrl+C para encerrar todos os serviços")
     print("-" * 60)
     
     try:
         # Manter o script principal em execução até Ctrl+C
-        while all(process.poll() is None for _, process in processes):
+        while all(process.poll() is None for name, process in processes):
             time.sleep(1)
             
         # Se chegou aqui, um dos processos terminou
