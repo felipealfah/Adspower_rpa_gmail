@@ -212,6 +212,10 @@ if st.sidebar.button("📜 Contas Criadas"):
 if st.sidebar.button("📱 Gerenciar Números"):
     st.session_state.current_page = "📱 Gerenciar Números"
 
+# Adicionar ao menu lateral no arquivo app.py, após a seção "Adm"
+if st.sidebar.button("💰 Consulta de Preços"):
+    st.session_state.current_page = "💰 Consulta de Preços"
+
 # Adicionar informações de saldo na barra lateral
 try:
     sms_balance = sms_api.get_balance()
@@ -744,3 +748,162 @@ elif st.session_state.current_page == "📱 Gerenciar Números":
                     else:
                         st.error(
                             f"❌ Erro ao cancelar o número {número['phone_number']}.")
+                        
+# **ABA 5 - CONSULTA DE PREÇOS**
+elif st.session_state.current_page == "💰 Consulta de Preços":
+    st.title("💰 Consulta de Preços da API SMS")
+    logging.info("Acessando aba de Consulta de Preços")
+    
+    # Importar as funções do arquivo price.py
+    try:
+        from apis.price import teste_precos_multi_servico, teste_operadoras_brasil, teste_preco_maximo
+    except ImportError as e:
+        st.error(f"❌ Erro ao importar módulo de preços: {str(e)}")
+        logging.error(f"Erro ao importar módulo de preços: {str(e)}")
+    
+    # Mostrar saldo atual
+    try:
+        saldo = sms_api.get_balance()
+        if saldo is not None:
+            st.success(f"💰 Saldo atual: {saldo:.2f} RUB")
+        else:
+            st.warning("⚠️ Não foi possível obter o saldo da API SMS")
+    except Exception as e:
+        st.error(f"❌ Erro ao obter saldo: {str(e)}")
+    
+    # Criar um layout com três seções (uma para cada tipo de consulta)
+    st.info("Esta ferramenta realiza consultas de preços sem efetuar compras de números")
+    
+    # Tabs para organizar os diferentes tipos de consulta
+    tab1, tab2, tab3 = st.tabs(["📊 Multi-serviço", "📡 Operadoras Brasil", "💲 Preço Máximo"])
+    
+    with tab1:
+        st.subheader("📊 Consulta de Preços Multi-serviço")
+        st.write("Esta consulta verifica os preços para diferentes combinações de serviços")
+        
+        # Botão para iniciar a consulta de preços multi-serviço
+        if st.button("🔍 Consultar Preços Multi-serviço"):
+            with st.spinner("Consultando preços para múltiplos serviços..."):
+                try:
+                    resultados = teste_precos_multi_servico()
+                    
+                    # Mostrar os resultados em formato de tabela
+                    if "saldo" in resultados:
+                        st.metric("Saldo Disponível", f"{resultados['saldo']:.2f} RUB")
+                    
+                    # Criar DataFrame para visualização
+                    data = []
+                    for key, value in resultados.items():
+                        if key != "saldo":
+                            servicos_str = "+".join(value["servicos"])
+                            soma_precos = value.get("soma_precos", 0)
+                            data.append({
+                                "Serviços": servicos_str,
+                                "Preço Total (RUB)": soma_precos,
+                                "Nº de Serviços": len(value["servicos"])
+                            })
+                    
+                    if data:
+                        df = pd.DataFrame(data)
+                        st.dataframe(df)
+                        
+                        # Mostrar caminho do arquivo salvo
+                        st.success("✅ Resultados completos salvos em 'resultados_testes/precos_multi_servico.json'")
+                    else:
+                        st.warning("⚠️ Nenhum resultado obtido")
+                        
+                except Exception as e:
+                    st.error(f"❌ Erro durante a consulta: {str(e)}")
+                    logging.error(f"Erro durante a consulta de preços multi-serviço: {str(e)}")
+    
+    with tab2:
+        st.subheader("📡 Consulta de Operadoras Brasil")
+        st.write("Esta consulta simula verificações por operadoras no Brasil")
+        
+        # Botão para iniciar a consulta de operadoras
+        if st.button("🔍 Consultar Operadoras Brasil"):
+            with st.spinner("Consultando disponibilidade por operadoras..."):
+                try:
+                    resultados = teste_operadoras_brasil()
+                    
+                    # Mostrar resultados em formato de tabela
+                    for servicos_str, dados in resultados.items():
+                        st.subheader(f"Serviços: {servicos_str}")
+                        
+                        # Disponibilidade geral
+                        disp_data = []
+                        for servico, disponibilidade in dados["disponibilidade_geral"].items():
+                            disp_data.append({
+                                "Serviço": servico,
+                                "Números Disponíveis": disponibilidade
+                            })
+                        
+                        if disp_data:
+                            st.write("Disponibilidade Geral:")
+                            st.dataframe(pd.DataFrame(disp_data))
+                        
+                        # Informações de operadoras (simulado)
+                        st.write("Simulação por Operadoras:")
+                        for operadora, info in dados["operadoras"].items():
+                            status = "✅ Disponível" if info["disponivel"] else "❌ Indisponível"
+                            st.info(f"**{operadora.upper()}**: {status}")
+                    
+                    # Mostrar caminho do arquivo salvo
+                    st.success("✅ Resultados completos salvos em 'resultados_testes/operadoras_brasil.json'")
+                        
+                except Exception as e:
+                    st.error(f"❌ Erro durante a consulta: {str(e)}")
+                    logging.error(f"Erro durante a consulta de operadoras Brasil: {str(e)}")
+    
+    with tab3:
+        st.subheader("💲 Análise de Preço Máximo")
+        st.write("Esta consulta analisa diferentes faixas de preço máximo")
+        
+        # Botão para iniciar a consulta de preço máximo
+        if st.button("🔍 Analisar Preços Máximos"):
+            with st.spinner("Analisando faixas de preço máximo..."):
+                try:
+                    resultados = teste_preco_maximo()
+                    
+                    # Mostrar preços atuais
+                    if "precos_atuais" in resultados:
+                        st.write("Preços Atuais por Serviço (Brasil):")
+                        precos_data = []
+                        for servico in resultados["precos_atuais"]:
+                            precos_data.append({
+                                "Serviço": servico["servico"],
+                                "Preço (RUB)": servico["preco"],
+                                "Números Disponíveis": servico["disponivel"]
+                            })
+                        
+                        if precos_data:
+                            st.dataframe(pd.DataFrame(precos_data))
+                        
+                        st.metric("Preço Total Atual", f"{resultados['preco_total_atual']:.2f} RUB")
+                    
+                    # Mostrar análise de faixas
+                    if "analise_faixas" in resultados:
+                        st.write("Análise por Faixa de Preço:")
+                        faixas_data = []
+                        for preco, info in resultados["analise_faixas"].items():
+                            faixas_data.append({
+                                "Preço Máximo (RUB)": preco,
+                                "Disponibilidade": "✅ Possível" if info["seria_possivel"] else "❌ Improvável",
+                                "Observação": info["nota"]
+                            })
+                        
+                        if faixas_data:
+                            st.dataframe(pd.DataFrame(faixas_data))
+                    
+                    # Mostrar recomendação
+                    if "recomendacao_geral" in resultados:
+                        rec = resultados["recomendacao_geral"]
+                        st.success(f"✅ Preço recomendado: **{rec['preco_recomendado']:.2f} RUB**")
+                        st.info(rec["explicacao"])
+                    
+                    # Mostrar caminho do arquivo salvo
+                    st.success("✅ Resultados completos salvos em 'resultados_testes/preco_maximo.json'")
+                        
+                except Exception as e:
+                    st.error(f"❌ Erro durante a consulta: {str(e)}")
+                    logging.error(f"Erro durante a análise de preços máximos: {str(e)}")

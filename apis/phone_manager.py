@@ -31,20 +31,21 @@ class PhoneManager:
         self.selected_countries = {
             # Brasil como primeira opção (prioridade absoluta)
             "73": "Brasil",
+            "151": "Chile",
+            "16": "Reino Unido",  # Reino Unido
+            "117": "Portugal",  # Portugal
             "40": "Canadá",     # Canadá
             "12": "Estados Unidos",  # Estados Unidos
             "52": "México",     # México
-            "16": "Reino Unido",  # Reino Unido
-            "151": "Chile",     # Chile
             "224": "Paraguai",  # Paraguai
             "156": "Peru",      # Peru
-            "225": "Uruguai",   # Uruguai
-            "117": "Portugal"   # Portugal
+            "225": "Uruguai"   # Uruguai
+            
         }
 
         # Ordem de prioridade para busca de países
-        self.country_priority = ["73", "40", "12",
-                                 "52", "16", "151", "224", "156", "225", "117"]
+        self.country_priority = ["73", "151",  "16", "117", "40", "12",
+                                 "52", "224", "156", "225"]
 
         # Instanciar SMSAPI para usar seus métodos
         self.sms_api = SMSAPI(self.api_key)
