@@ -415,3 +415,122 @@ class PhoneManager:
             "recommended": priority_data[0] if priority_data else None,
             "service": service
         }
+    
+    def buy_multi_service_number(self, services, country=None):
+        """
+        Compra um número para múltiplos serviços.
+        
+        Args:
+            services (list): Lista de códigos de serviço (ex: ["go", "tk", "ig"])
+            country (str, optional): Código do país. Se None, usa Brasil ou a ordem de prioridade.
+            
+        Returns:
+            dict: Informações do número comprado ou None se falhou
+        """
+        if not self.sms_api:
+            logger.error("❌ API SMS não inicializada")
+            return None
+            
+        # Se country não for especificado, tenta Brasil primeiro e depois outros países em ordem de prioridade
+        if not country:
+            countries_to_try = self.country_priority
+        else:
+            countries_to_try = [country]
+        
+        for country_code in countries_to_try:
+            if country_code not in self.selected_countries:
+                continue
+                
+            country_name = self.selected_countries[country_code]
+            logger.info(f"🔍 Tentando comprar número multi-serviço em: {country_name} ({country_code})")
+            
+            try:
+                activation_id, phone_number = self.sms_api.buy_number_multi_service(services, country_code)
+                
+                if activation_id and phone_number:
+                    logger.info(f"✅ Número multi-serviço obtido: {phone_number} (País: {country_name})")
+                    
+                    # Salvar o número no gerenciador
+                    number_data = {
+                        "phone_number": phone_number,
+                        "country_code": country_code,
+                        "activation_id": activation_id,
+                        "services": services,  # Lista dos serviços para os quais o número foi comprado
+                        "first_used": time.time(),
+                        "last_used": time.time(),
+                        "times_used": 1
+                    }
+                    
+                    # Adicionar ao armazenamento interno
+                    self.numbers.append(number_data)
+                    self._save_numbers()
+                    
+                    return number_data
+                    
+            except Exception as e:
+                logger.error(f"❌ Erro ao comprar número em {country_name}: {str(e)}")
+                continue
+        
+        logger.error("❌ Não foi possível comprar número para os serviços especificados em nenhum país")
+        return None
+
+    def buy_multi_service_with_webhook(self, services, webhook_url, country=None):
+        """
+        Compra um número para múltiplos serviços com webhook configurado.
+        
+        Args:
+            services (list): Lista de códigos de serviço (ex: ["go", "tk", "ig"])
+            webhook_url (str): URL do webhook para receber notificações
+            country (str, optional): Código do país. Se None, usa Brasil ou a ordem de prioridade.
+            
+        Returns:
+            dict: Informações do número comprado ou None se falhou
+        """
+        if not self.sms_api:
+            logger.error("❌ API SMS não inicializada")
+            return None
+            
+        # Se country não for especificado, tenta Brasil primeiro e depois outros países em ordem de prioridade
+        if not country:
+            countries_to_try = self.country_priority
+        else:
+            countries_to_try = [country]
+        
+        for country_code in countries_to_try:
+            if country_code not in self.selected_countries:
+                continue
+                
+            country_name = self.selected_countries[country_code]
+            logger.info(f"🔍 Tentando comprar número multi-serviço com webhook em: {country_name} ({country_code})")
+            
+            try:
+                activation_id, phone_number = self.sms_api.buy_multi_service_with_webhook(
+                    services, country_code, webhook_url)
+                
+                if activation_id and phone_number:
+                    logger.info(f"✅ Número multi-serviço com webhook obtido: {phone_number} (País: {country_name})")
+                    
+                    # Salvar o número no gerenciador
+                    number_data = {
+                        "phone_number": phone_number,
+                        "country_code": country_code,
+                        "activation_id": activation_id,
+                        "services": services,
+                        "webhook_url": webhook_url,
+                        "first_used": time.time(),
+                        "last_used": time.time(),
+                        "times_used": 1
+                    }
+                    
+                    # Adicionar ao armazenamento interno
+                    self.numbers.append(number_data)
+                    self._save_numbers()
+                    
+                    return number_data
+                    
+            except Exception as e:
+                logger.error(f"❌ Erro ao comprar número com webhook em {country_name}: {str(e)}")
+                continue
+        
+        logger.error("❌ Não foi possível comprar número com webhook para os serviços especificados em nenhum país")
+        return None

@@ -381,3 +381,207 @@ class SMSAPI:
             tuple: (activation_id, phone_number) ou (None, None) em caso de falha
         """
         return self.buy_number(service, country)
+    def buy_number_multi_service(self, services, country):
+        """
+        Compra um número compatível com múltiplos serviços simultaneamente.
+        
+        Args:
+            services (list): Lista de códigos de serviço (ex: ["go", "tk", "ig"])
+            country (str): Código do país
+            
+        Returns:
+            tuple: (activation_id, phone_number) ou (None, None) em caso de falha
+        """
+        self.refresh_credentials()
+        
+        # Converter lista de serviços para string separada por vírgulas
+        services_str = ",".join(services)
+        
+        params = {
+            'api_key': self.api_key,
+            'action': 'getNumber',
+            'service': services_str,
+            'country': country,
+            'multiService': '1'  # Parâmetro para indicar que queremos um número multi-serviço
+        }
+        
+        try:
+            response = requests.get(self.base_url, params=params, timeout=15)
+            response_text = response.text
+            
+            if "ACCESS_NUMBER" in response_text:
+                _, activation_id, phone_number = response_text.split(":")
+                logger.info(f"✅ Número multi-serviço comprado com sucesso: {phone_number} (ID: {activation_id})")
+                logger.info(f"✅ Serviços habilitados: {services_str}")
+                
+                # Validar dados antes de retornar
+                if not all([activation_id, phone_number]):
+                    raise ValueError("Dados do número incompletos na resposta da API")
+                    
+                return activation_id.strip(), phone_number.strip()
+                
+            # Tratamento de erros específicos
+            error_messages = {
+                "NO_NUMBERS": f"Sem números multi-serviço disponíveis para {services_str} no país {country}",
+                "NO_BALANCE": "Saldo insuficiente",
+                "BAD_SERVICE": "Um ou mais códigos de serviço inválidos",
+                "BAD_KEY": "Chave de API inválida"
+            }
+            
+            for error_code, message in error_messages.items():
+                if error_code in response_text:
+                    logger.error(f"❌ {message}")
+                    return None, None
+                    
+            logger.error(f"❌ Erro desconhecido: {response_text}")
+            return None, None
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao comprar número multi-serviço: {str(e)}")
+            return None, None
+
+    def buy_number_with_webhook(self, service, country, webhook_url):
+        """
+        Compra um número com configuração de webhook para receber notificações automáticas.
+        
+        Args:
+            service (str): Código do serviço (ex: "go" para Gmail)
+            country (str): Código do país
+            webhook_url (str): URL completa do webhook para receber notificações
+            
+        Returns:
+            tuple: (activation_id, phone_number) ou (None, None) em caso de falha
+        """
+        self.refresh_credentials()
+        
+        params = {
+            'api_key': self.api_key,
+            'action': 'getNumber',
+            'service': service,
+            'country': country,
+            'webhook': webhook_url  # Parâmetro para configurar o webhook
+        }
+        
+        try:
+            response = requests.get(self.base_url, params=params, timeout=15)
+            response_text = response.text
+            
+            if "ACCESS_NUMBER" in response_text:
+                _, activation_id, phone_number = response_text.split(":")
+                logger.info(f"✅ Número comprado com webhook: {phone_number} (ID: {activation_id})")
+                
+                # Registrar o webhook para este activation_id
+                self._register_webhook_callback(activation_id, webhook_url)
+                
+                return activation_id.strip(), phone_number.strip()
+                
+            # Tratamento de erros específicos (similar ao método buy_number)
+            error_messages = {
+                "NO_NUMBERS": "Sem números disponíveis",
+                "NO_BALANCE": "Saldo insuficiente",
+                "BAD_SERVICE": "Serviço inválido",
+                "BAD_KEY": "Chave de API inválida"
+            }
+            
+            for error_code, message in error_messages.items():
+                if error_code in response_text:
+                    logger.error(f"❌ {message} para {service} no país {country}")
+                    return None, None
+                    
+            logger.error(f"❌ Erro desconhecido: {response_text}")
+            return None, None
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao comprar número com webhook: {str(e)}")
+            return None, None
+
+    def buy_multi_service_with_webhook(self, services, country, webhook_url):
+        """
+        Compra um número compatível com múltiplos serviços e configura webhook.
+        
+        Args:
+            services (list): Lista de códigos de serviço (ex: ["go", "tk", "ig"])
+            country (str): Código do país
+            webhook_url (str): URL completa do webhook para receber notificações
+            
+        Returns:
+            tuple: (activation_id, phone_number) ou (None, None) em caso de falha
+        """
+        self.refresh_credentials()
+        
+        # Converter lista de serviços para string separada por vírgulas
+        services_str = ",".join(services)
+        
+        params = {
+            'api_key': self.api_key,
+            'action': 'getNumber',
+            'service': services_str,
+            'country': country,
+            'multiService': '1',  # Indicar número multi-serviço
+            'webhook': webhook_url  # Configurar webhook
+        }
+        
+        try:
+            response = requests.get(self.base_url, params=params, timeout=15)
+            response_text = response.text
+            
+            if "ACCESS_NUMBER" in response_text:
+                _, activation_id, phone_number = response_text.split(":")
+                logger.info(f"✅ Número multi-serviço com webhook: {phone_number} (ID: {activation_id})")
+                logger.info(f"✅ Serviços habilitados: {services_str}")
+                
+                # Registrar o webhook para este activation_id
+                self._register_webhook_callback(activation_id, webhook_url)
+                
+                return activation_id.strip(), phone_number.strip()
+                
+            # Tratamento de erros (similar aos métodos anteriores)
+            error_messages = {
+                "NO_NUMBERS": f"Sem números multi-serviço disponíveis para {services_str} no país {country}",
+                "NO_BALANCE": "Saldo insuficiente",
+                "BAD_SERVICE": "Um ou mais códigos de serviço inválidos",
+                "BAD_KEY": "Chave de API inválida"
+            }
+            
+            for error_code, message in error_messages.items():
+                if error_code in response_text:
+                    logger.error(f"❌ {message}")
+                    return None, None
+                    
+            logger.error(f"❌ Erro desconhecido: {response_text}")
+            return None, None
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao comprar número multi-serviço com webhook: {str(e)}")
+            return None, None
+
+    def _register_webhook_callback(self, activation_id, webhook_url):
+        """
+        Registra a associação entre um activation_id e uma URL de webhook.
+        Em um sistema real, isso seria armazenado em banco de dados.
+        """
+        try:
+            # Diretório para armazenar callbacks
+            sms_data_dir = "sms_data"
+            os.makedirs(sms_data_dir, exist_ok=True)
+            
+            # Arquivo de configuração de callbacks
+            config_path = os.path.join(sms_data_dir, "callbacks.json")
+            
+            # Carregar callbacks existentes ou criar novo
+            callbacks = {}
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    callbacks = json.load(f)
+                    
+            # Registrar novo callback
+            callbacks[activation_id] = webhook_url
+            
+            # Salvar configuração atualizada
+            with open(config_path, 'w') as f:
+                json.dump(callbacks, f)
+                
+            logger.info(f"✅ Webhook registrado para ativação {activation_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao registrar webhook: {str(e)}")
